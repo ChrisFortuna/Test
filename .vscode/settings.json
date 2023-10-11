@@ -1,0 +1,10 @@
+{
+      "files.associations": {
+            "sstream": "cpp",
+            "random": "cpp",
+            "iosfwd": "cpp",
+            "new": "cpp",
+            "mstd_iterator": "cpp"
+      }
+
+}
