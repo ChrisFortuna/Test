@@ -15,6 +15,8 @@ from custom_logger import*
 
 class GUI:
     def __init__(self):
+        self.mainWindow = tk.Tk()
+        
         self.ble_thread = BLE_link()
         self.ble_thread.daemon = True
         
@@ -32,7 +34,6 @@ class GUI:
     def _init_mainWindow(self):
         style = 'light'
 
-        self.mainWindow = tk.Tk()
         self.mainWindow.option_add("*tearOff", False)
         self.mainWindow.tk.call('source', 'Theme/Forest-ttk-theme-master/forest-' + style + '.tcl')
         ttk.Style().theme_use('forest-' + style)
@@ -138,22 +139,28 @@ class GUI:
         for mode in Modes:
             mode_name=mode.name.replace("_"," ")      
             mode_button = ttk.Button(self.mode_frame, text=mode_name, 
-                                     command=lambda m=mode: self.set_mode(m),width=12)
+                                     command=lambda m=mode: self.set_mode(m),width=9)
             mode_button.pack(side=tk.LEFT, fill=tk.BOTH, padx=5, pady=5)
             self.mode_buttons.append(mode_button)
         self.update_modeButtons()
     def init_customButtons(self):
-        self.customBtt_frame = ttk.LabelFrame(self.buttonsFrame, text="Custom Buttons", style='TLabelframe')
-        self.customBtt_frame.grid(row=0,column=1,padx=10,pady=5,sticky="e")
+        self.customBttFrame = ttk.LabelFrame(self.buttonsFrame, text="Custom Buttons", style='TLabelframe')
+        self.customBttFrame.grid(row=0,column=1,padx=10,pady=5,sticky="e")
         
-        self.realtime_button = ttk.Button(self.customBtt_frame, text="Display Sensors", 
-                                     command= self.realtimeButton_callback,width=15)
-        self.realtime_button.grid(column=1,row=0,padx=5,pady=5)
+        self.sendFlashButton = ttk.Button(self.customBttFrame, text="Send Flash", 
+                                     command= self.sendFlashCallback,width=12)
+        self.sendFlashButton.grid(column=0,row=0,padx=5,pady=5)
         
-        self.erase_button = ttk.Button(self.customBtt_frame, text="Erase Flash", 
-                                     command= self.eraseButton_callback,width=15)
-        self.erase_button.grid(column=0,row=0,padx=5,pady=5)
-        self.custom_buttons.extend([self.erase_button, self.realtime_button])
+        self.eraseButton = ttk.Button(self.customBttFrame, text="Erase Flash", 
+                                     command= self.eraseFlashCallback,width=12)
+        self.eraseButton.grid(column=1,row=0,padx=5,pady=5)
+        
+        self.realtime_button = ttk.Button(self.customBttFrame, text="Show Sensors", 
+                                     command= self.realtimeSensorsCallback,width=12)
+        self.realtime_button.grid(column=2,row=0,padx=5,pady=5)
+        
+
+        self.custom_buttons.extend([self.sendFlashButton, self.realtime_button,self.eraseButton])
     def init_statusFrame(self):  
         self.statusFrame=ttk.LabelFrame(self.container_frame, text="Status", style='TLabelframe')
         self.console = ConsoleUi(self.statusFrame) 
@@ -172,13 +179,12 @@ class GUI:
         self.buttonsFrame.pack(side=tk.TOP, fill=tk.X, expand=True)
         self.pack_parameterSetup()
     
-        
         match self.ble_thread.mode:
             case Modes.RC_Mode:
                 for btt in self.custom_buttons:
                     btt.configure(state='disabled')
                 self.paramUpdate_button.configure(state='disabled')
-            case Modes.Configuration:  
+            case Modes.Config:  
                 for btt in self.custom_buttons:
                     btt.configure(state='normal')
                 self.paramUpdate_button.configure(state='normal')
@@ -187,7 +193,7 @@ class GUI:
                     btt.configure(state='normal')
                 self.paramUpdate_button.configure(state='disabled')
             case _:
-                mode=Modes.Configuration
+                mode=Modes.Config
              
         self.update_modeButtons()
         self.resetCustomButtons()
@@ -209,7 +215,7 @@ class GUI:
         self.disconnectButton.grid_forget()
         self.statusFrame.pack_forget()
     def resetCustomButtons(self):
-        self.realtime_button["text"] = "Display Sensors"    
+        self.realtime_button["text"] = "Show Sensors"    
     def BLE_discover(self):
         self.ble_thread.detectedDevices = None 
         self.discoverButton.configure(text="Wait...", command=self.do_nothing)
@@ -235,7 +241,6 @@ class GUI:
         self.connectButton.configure(text="Wait...", command=self.do_nothing)
         self.mainWindow.update()
         self.device2Connect = self.connectList.get(tk.ACTIVE)
-        logger.info("Connection to " + str(self.device2Connect))
         self.ble_thread.connect(deviceName=str(self.device2Connect))
 
         while self.ble_thread.connectedDevice is None:
@@ -254,9 +259,7 @@ class GUI:
         self.mainWindow.deiconify()
         self.mainWindow.update()
     def BLE_disconnect(self):
-        # Disconnect from the current peripheral
         self.ble_thread.disconnect()      
-        self.uconnect_flag=False
 
     def do_nothing(self):
         pass
@@ -289,7 +292,7 @@ class GUI:
                 self.ble_thread.param_tab[4*i+j].grid_widget(i,j)
             
         self.paramUpdate_button = ttk.Button(self.scrollableFrame, text="Update Parameters", 
-                                          command=self.ble_thread.param_update,width=16)
+                                          command=self.ble_thread.paramUpdate,width=16)
         self.paramUpdate_button.grid(column=3, row = (nb_rows)*2, sticky="es",padx=10,pady=5)
         
         for row in range(2*(nb_rows)+1):
@@ -321,24 +324,27 @@ class GUI:
 
         
     def set_mode(self,mode):
-        match mode:
-            case Modes.RC_Mode:
-                for btt in self.custom_buttons:
-                    btt.configure(state='disabled')
-                self.paramUpdate_button.configure(state='disabled')
-            case Modes.Configuration:  
-                for btt in self.custom_buttons:
-                    btt.configure(state='normal')
-                self.paramUpdate_button.configure(state='normal')
-            case Modes.Sequence: 
-                for btt in self.custom_buttons:
-                    btt.configure(state='normal')
-                self.paramUpdate_button.configure(state='disabled')
-            case _:
-                mode=Modes.Configuration
-        self.ble_thread.new_mode = mode
-        self.update_modeButtons()
-
+        if(self.ble_thread.isConnected):
+            match mode:
+                case Modes.RC_Mode:
+                    for btt in self.custom_buttons:
+                        btt.configure(state='disabled')
+                    self.paramUpdate_button.configure(state='disabled')
+                case Modes.Config:  
+                    for btt in self.custom_buttons:
+                        btt.configure(state='normal')
+                    self.paramUpdate_button.configure(state='normal')
+                case Modes.Sequence: 
+                    for btt in self.custom_buttons:
+                        btt.configure(state='normal')
+                    self.paramUpdate_button.configure(state='disabled')
+                case _:
+                    mode=Modes.Config
+            self.ble_thread.new_mode = mode
+            self.update_modeButtons()
+        else:
+            logger.warning("Central not connected to peripheral!")
+            
     def update_modeButtons(self):
         for i in range(len(self.mode_buttons)):
             if self.ble_thread.new_mode.name == self.mode_buttons[i]["text"].replace(" ","_"):
@@ -346,22 +352,32 @@ class GUI:
             else:
                 self.mode_buttons[i].configure(style='TButton')
 
-    def realtimeButton_callback(self):
-        current_text = self.realtime_button["text"]
-        if current_text == "Display Sensors":
-            self.ble_thread.user_command = Commands.Sensor_Display
-            self.realtime_button["text"] = "Hide Sensors"
-            logger.info("The logger will start displaying sensor values!")
+    def realtimeSensorsCallback(self):
+        if(self.ble_thread.isConnected):
+            current_text = self.realtime_button["text"]
+            if current_text == "Show Sensors":
+                self.ble_thread.user_command = Commands.sensorDisplay
+                self.realtime_button["text"] = "Hide Sensors"
+                logger.info("The logger will start displaying sensor values!")
+            else:
+                self.ble_thread.user_command = Commands.sensorDisplay
+                self.realtime_button["text"] = "Show Sensors"
+                logger.info("The logger will stop displaying sensor values!")
         else:
-            self.ble_thread.user_command = Commands.Sensor_Display
-            self.realtime_button["text"] = "Display Sensors"
-            logger.info("The logger will stop displaying sensor values!")
-    def eraseButton_callback(self):
-        self.ble_thread.user_command = Commands.Erase
-        logger.warning("Erase started!")
+            logger.warning("Central not connected to peripheral!")
+    def sendFlashCallback(self):
+        if(self.ble_thread.isConnected):
+            self.ble_thread.user_command = Commands.sendFlash
+            logger.debug("Flash transfer started!")
+        else:
+            logger.warning("Central not connected to peripheral!")
 
+    def eraseFlashCallback(self):
+        if(self.ble_thread.isConnected):
+            self.ble_thread.user_command = Commands.eraseFlash
+            logger.warning("Flash erased!")
+        else:
+            logger.warning("Central not connected to peripheral!")
  
-
-root = GUI()
-
-
+if __name__ == '__main__':
+    root = GUI()

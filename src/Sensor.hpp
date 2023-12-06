@@ -17,19 +17,17 @@ class Sensor{
 //setup sensor methods:
 	void all_sensor_bleWrite();
 	void allSensorsFlashWrite();
-	void all_sensor_to_service();
+	void allSensorsToService();
 	
 //update sensor methods:	
 	int16_t sensor_read();
 	void sensor_update();
-	static void increment_dataCount();
 
 //getters
 	const vector <Sensor *>& get_sensor_tab();
 	BLEService& get_sensorService();
 	string get_name();
 	int16_t get_last_value();
-	uint32_t get_dataCount();
 
 
   protected:
@@ -37,7 +35,6 @@ class Sensor{
 	unsigned short pin;
     	int16_t last_value;
 	 
-	static uint32_t dataCount;
 	static vector<Sensor *> sensor_tab;
       static BLEService* sensorService;
 	static string descriptor;
@@ -45,12 +42,12 @@ class Sensor{
 
 void add_sensorService();
 void advertise_sensorService();
-void all_sensor_setup();
-void all_sensor_print();
-void all_sensor_record();
-void flashBleSend();
-void all_sensor_ble_send();
-unsigned get_sensor_nb();
-void reset_time_reference();
+void allSensorSetup();
+void allSensorPrint();
+void allSensorRecordViaFlash();
+void allSensorRecordViaBle();
+void resetTimeReference();
+void sendBufferViaBLE(uint8_t* tempBuff, int length);
+uint8_t getSensorNb();
 
 #endif

@@ -1,7 +1,7 @@
 from threading import Thread, Event
 import asyncio, uuid
 import numpy as np
-import sys,os
+import sys,os,csv
 
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = 'hide'
 
@@ -21,6 +21,7 @@ from tkinter import ttk, END, messagebox
 
 
 PARAM_DG_CNT = 4
+MAX_COUNTER = 20
 TYPES = {0 : "ONE_VAL", 1: "BOOL"}
 
 DEFAULT_PATH = os.path.dirname(os.path.abspath(__file__))
@@ -112,23 +113,17 @@ class Parameter():
 
 class Sensor():
     def __init__(self, name:str, connect_time: datetime) -> None:
-        self.path = SAVE_FOLDER +'/' + name + "#" + connect_time.strftime("%d/%m/%Y %H:%M:%S")
+        self.path = SAVE_FOLDER +'\\' + name + "@" + connect_time.strftime("%d_%m_%Y %H_%M_%S") +".csv"
         self.name = name
         self.valuesList = []
         self.timestampsList =[]
-        self.column_names = ["time", "data_value"]
+        self.column_names = ["time", "data value"]
         
     def writeToCsv(self):
-        if len(set([len(self.timestampsList), len(self.valuesList)])) > 1:
-            raise Exception("Not all data lists are the same length.")
-
-        with open(self.path, "a+") as f:
-            if os.stat(self.path).st_size == 0:
-                print("Created file.")
-                f.write(",".join([str(name) for name in self.column_names]) + ",\n")
-            else:
-                for i in range(len(self.valuesList)):
-                    f.write(f"{self.timestampsList[i]},{self.valuesList[i]},\n")
+        with open(self.path, 'w', newline='') as file:
+            writer = csv.writer(file)
+            writer.writerow(['Time', 'Measurement'])
+            writer.writerows(zip(self.timestampsList, self.valuesList))
     
 
 class BLE_link(Thread):
@@ -142,8 +137,8 @@ class BLE_link(Thread):
         self.device2Connect = None
         self.connectedDevice = None
         self.detectedDevices = None
+        self.isConnected = False
         
-        self.ask2Initialize=False
         self.ask2Update=False
         self.user_command=None
         
@@ -153,14 +148,12 @@ class BLE_link(Thread):
 
         asyncio.ensure_future(self.discoverLoop())
         asyncio.ensure_future(self.connectLoop())
-        asyncio.ensure_future(self.mantainConnectLoop())
         asyncio.ensure_future(self.user_input(50))
         
         self.param_tab=[]
         self.sensor_tab=[]
         self.mode = Modes.RC_Mode
         self.new_mode = Modes.RC_Mode
-        self.adress = None
         
         self.connect_time=None
         
@@ -178,8 +171,9 @@ class BLE_link(Thread):
         self.device2Connect = None
         self.connectedDevice = None
         self.detectedDevices = None
+        self.isConnected = False
         
-        self.ask2Initialize=False
+        self.ask2Update=False
         self.showRealtimeSensors=False
         
         self.param_tab=[]
@@ -188,8 +182,11 @@ class BLE_link(Thread):
         self.new_mode = Modes.RC_Mode
         
         self.connect_time=None
-    def param_update(self):
-        self.ask2Update=True
+    def paramUpdate(self):
+        if(self.isConnected):
+            self.ask2Update=True
+        else:
+            logger.warning("Central not connected to peripheral!")
 
     async def wait2Discover(self):
         while not(self.ask2Discover):
@@ -200,45 +197,8 @@ class BLE_link(Thread):
         while not(self.ask2Connect):
             await asyncio.sleep(0.5)
         self.ask2Connect = False
-
-    async def mantainConnectLoop(self):
-        counter = 0
-        maxCounter = 5
-        while True:
-            if(self.connectedDevice != None and self.connectedDevice != "Fail"):
-                try:
-                    connected = self.client.is_connected
-                    if connected:
-                        if(counter): 
-                            logger.debug(f"Central regained connection to {self.connectedDevice}!")
-                            counter =0 
-                        
-                    else:
-                        if(not counter): logger.error(f"Central lost connection to {self.connectedDevice}!")
-                        try:
-                            connect_task = asyncio.create_task(self.reconnectionTask())
-                            await asyncio.wait_for(connect_task, timeout=4)
-                        except asyncio.TimeoutError:
-                            print(f"Connection attempt to {self.connectedDevice} timed out.")
-                        counter+=1
-                        logger.warning(f"Central tried to connect {counter} {'time' if counter==1 else 'times'}!")
-                        if(counter>maxCounter):
-                            logger.error(f"Central has disconnected from {self.connectedDevice}")
-                            counter = 0
-                            
-                            global root
-                            from main import root
-                            root.after(10,root.disconnectBtt_callback)
-                except BleakError as e:
-                    print(f"Error: {e}")    
-            await asyncio.sleep(1)
-
-    
-    async def reconnectionTask(self):
-        del self.client
-        self.client = BleakClient(self.adress)  
-        await self.client.connect()            
-    
+########################################################################
+#### Setup     
     async def discoverLoop(self):
         while True:
             # Wait for discover request
@@ -250,100 +210,154 @@ class BLE_link(Thread):
     async def connectLoop(self):
         while True:
             await self.wait2Connect()
-            print("START CONNECTING")
             if self.device2Connect is None:
                 print("CHOOSE A DEVICE TO CONNECT")
             else:
                 for d in self.detectedDevices:
-                    print(d)
                     if d.name == self.device2Connect:
-                        try:
-                            print("Trying to connect")
-                            self.adress = d.address
-                            self.client = BleakClient(self.adress)
-                            
-                            await self.client.connect()
-                            self.connect_time=datetime.now()
-                            await self.print_client_info()
-                            await self.connection_setup()
-                            self.connectedDevice = d.name
-                            logger.debug(f"Connexion succesful to {d.name}!")
-                            logger.info(f"""{d.name} has the following sensors : {', '.join([sensor.name for sensor in self.sensor_tab])}""")
-                            
-                            await self.client.start_notify(SENSOR_CHAR_UUID, self.sensorCallback)
-                            
-                            while not(self.ask2Disconnect):
-                                await self.communicate()
-                                await asyncio.sleep(0.1)
-
+                        device = d
+                        address = d.address
+                
+                counter = 0         
+                while(True):
+                    print(device.name)
+                    if(counter<=MAX_COUNTER and not self.ask2Disconnect):
+                        if(counter==0):
+                            logger.debug(f"Trying to connect to {device.name}")
                             try:
-                                await self.client.stop_notify(SENSOR_CHAR_UUID)    
-                                await self.client.disconnect() 
-                                logger.warning(f"Central is disconnected!")  
+                                if (await self.mantainConnect(device,True)): 
+                                    break
+                                else: counter+=1
+                            except BleakError as e:
+                                self.connectedDevice = "Fail"
+                                print(f"Error: {e}")
+                        else:
+                            connect_task = asyncio.create_task(BleakScanner.find_device_by_address(address))
+                            try:
+                                device = await asyncio.wait_for(connect_task, timeout=1)
                             except:
-                                pass
-                            finally: 
-                                self.ask2Disconnect = False 
-                                break
+                                logger.warning(f"Central tried to connect {counter} {'time' if counter==1 else 'times'}!")
+                                counter+=1
+                                continue
+                            
+                            try:
+                                if (device is None): 
+                                    counter+=1
+                                elif (await self.mantainConnect(device,False)):
+                                    counter = 0 
+                                    break
+                                else: 
+                                    counter = 0
 
-                        except Exception as exc:
-                           self.connectedDevice = "Fail"
-                           raise RuntimeError("Something bad happened") from exc
-            logger.debug(f"Device disconnected!")
-        
+                            except:
+                                logger.warning(f"Central tried to connect {counter} {'time' if counter==1 else 'times'}!")
+                                counter+=1
+                    else:
+                        logger.error(f"Central has failed to connect to {device.name}")
+                        self.isConnected = False
+                        counter = 0
+                        self.device2Connect = "Fail"
+                        spamCounter = 0
+                        while(not self.ask2Disconnect):
+                            spamCounter+=1
+                            if(spamCounter==10):
+                                spamCounter = 0
+                                logger.error(f'Please click disconnect! The device is disconnected!')
+                            await asyncio.sleep(0.5)  
+                        self.ask2Disconnect = False  
+                        break
+                    await asyncio.sleep(1)
+                        
+    async def mantainConnect(self, device, isFirstConnect):
+        async with BleakClient(
+        device) as client:
+            self.connect_time = datetime.now()
+            self.isConnected = True
 
-    def sensorCallback(self,sender, data: bytearray):
+            if(isFirstConnect):
+                logger.debug(f"Connection successful to {device.name}!")
+                await self.print_client_info(client)
+                await self.connection_setup(client)
+                logger.info(f"""{device.name} has the following sensors : {', '.join([sensor.name for sensor in self.sensor_tab])}""")
+            else:
+                logger.debug(f"Successfully reconnected!")
+
+            self.connectedDevice = device.name  
+            await client.start_notify(SENSOR_CHAR_UUID, self.sensorCallback)
+
+            while (not self.ask2Disconnect):
+                await self.communicate(client)
+                if(not client.is_connected): break
+                else: await asyncio.sleep(0.1)
+
+            if(client.is_connected):
+                await client.stop_notify(SENSOR_CHAR_UUID)    
+                await client.disconnect() 
+                logger.debug(f"Central has been disconnected from peripheral!")  
+                self.ask2Disconnect = False
+                self.isConnected = False
+                return True
+            else:
+                logger.error(f"Central lost connection to {self.connectedDevice}!") 
+                self.isConnected = False
+                return False
+                                    
+
+########################################################################
+#### BLE Callbacks       
+
+    def sensorCallback(self, sender, data: bytearray):
         if(self.showRealtimeSensors):
-            logger.info("Sensors: ")
+            logger.info("Sensors read: ")
             for id in range(len(self.sensor_tab)):
                 value = int.from_bytes(data[2*id:2*id+2],"big")
-                logger.info(f"Sensor {self.sensor_tab[id].name} reads {value}")
+                logger.info(f"{self.sensor_tab[id].name} reads {value}")
         else:
             if(self.sensorDataNumber == None):
                 self.sensorDataNumber = int.from_bytes(data[0:2],"big")
-                logger.debug(f"Robot will send {self.sensorDataNumber} data points for each sensor!")
+                logger.debug(f"MCU will send {self.sensorDataNumber} data points for each sensor!")
             else:
                 self.sensorDataCounter+=1
                 timestamp = int.from_bytes(data[0:4],"big")
+                timeString = (self.connect_time + timedelta(milliseconds=timestamp)).strftime("%H:%M:%S")
+                logger.debug(f"Data recorded at: {timeString}")
                 for id in range(len(self.sensor_tab)):
                     value = int.from_bytes(data[2*id+4:2*id+2+4],"big")
-                    self.sensor_tab[id].timestampsList.append(timestamp)
+                    self.sensor_tab[id].timestampsList.append(timeString)
                     self.sensor_tab[id].valuesList.append(value)
-                    logger.info(f"Sensor {self.sensor_tab[id].name} reads {value}")
+                    logger.info(f"{self.sensor_tab[id].name} reads {value}")
                 if(self.sensorDataCounter==self.sensorDataNumber):
                     self.sensorDataCounter = 0
                     self.sensorDataNumber = None
-                    logger.debug(f"Robot done with sending data!")
-                    # for sensor in self.sensor_tab:
-                    #     sensor.writeToCsv()
-                    #     sensor.valuesList = []
-                    #     sensor.timestampsList =[]
-                        
-      
-    
-    async def connection_setup(self):
-        for service in self.client.services:
+                    logger.debug(f"MCU is done with sending data!")
+                    for sensor in self.sensor_tab:
+                        sensor.writeToCsv()
+                        sensor.valuesList = []
+                        sensor.timestampsList =[]
+                            
+    async def connection_setup(self, client):
+        for service in client.services:
             print(service.uuid)
             if(service.uuid == MISC_SERVICE_UUID):
-                await self.misc_setup(service)
+                await self.misc_setup(service,client)
             elif(service.uuid == PARAM_SERVICE_UUID):
-                await self.param_setup(service)
+                await self.param_setup(service,client)
             elif(service.uuid == SENSOR_SERVICE_UUID):
-                await self.sensor_setup(service)
+                await self.sensor_setup(service,client)
                 pass
-    async def misc_setup(self,service):
+    async def misc_setup(self,service, client):
         for char in service.characteristics:
             print(char.uuid)
             if (char.uuid==MODE_UUID):
-                byte_val = await self.client.read_gatt_char(char.uuid)
+                byte_val = await client.read_gatt_char(char.uuid)
                 print(int.from_bytes(byte_val,"little"))
                 self.mode = Modes(int.from_bytes(byte_val,"little"))
                 self.new_mode  = Modes(int.from_bytes(byte_val,"little"))
-    async def param_setup(self, service):
+    async def param_setup(self, service, client):
         for char in service.characteristics:
             if "read" in char.properties:
                 try:
-                    byte_val = await self.client.read_gatt_char(char.uuid)
+                    byte_val = await client.read_gatt_char(char.uuid)
                 except Exception as err:
                     print(err)
             else:
@@ -352,17 +366,17 @@ class BLE_link(Thread):
                 if(descriptor.uuid[4:8]!="2901"): 
                     continue
                 try:
-                    byte_desc = await self.client.read_gatt_descriptor(descriptor.handle)
+                    byte_desc = await client.read_gatt_descriptor(descriptor.handle)
                 except Exception as err:
                     print(err)
             self.param_tab.append(Parameter(byte_val,byte_desc,char.uuid))
-    async def sensor_setup(self, service):
+    async def sensor_setup(self, service, client):
         for char in service.characteristics:
             for descriptor in char.descriptors:
                 if(descriptor.uuid[4:8]!="2901"): 
                     continue
                 try:
-                    byte_desc = await self.client.read_gatt_descriptor(descriptor.handle)
+                    byte_desc = await client.read_gatt_descriptor(descriptor.handle)
                 except Exception as err:
                     print(err)
                 descriptor = byte_desc.decode('utf-8')
@@ -371,7 +385,7 @@ class BLE_link(Thread):
                     self.sensor_tab.append(Sensor(name, self.connect_time))
         
 
-    async def communicate(self):
+    async def communicate(self,client):
         try:
             if(self.new_mode != self.mode):
                 if(self.new_mode.value == 2): 
@@ -385,28 +399,29 @@ class BLE_link(Thread):
 
                 # Update mode memory
                 self.mode = self.new_mode 
-                await self.client.write_gatt_char(MODE_UUID, bytearray([self.new_mode.value]))
+                await client.write_gatt_char(MODE_UUID, bytearray([self.new_mode.value]))
             
             if self.mode.value == 0:
-                # print("Mode switched to RC passthrough")
-                # await self.client.write_gatt_char(RPYT_UUID, bytearray())
+                #print("Mode switched to RC passthrough")
+                #await client.write_gatt_char(RPYT_UUID, bytearray())
                 return
             
             
             if(self.user_command != None):
                 match self.user_command:
-                    case Commands.Sensor_Display:
+                    case Commands.sensorDisplay:
                         self.showRealtimeSensors = not self.showRealtimeSensors
                         if(self.showRealtimeSensors):
                             logger.debug("Started recording realtime values!")
                         else:
                             logger.debug("Stopped recording realtime values!")
-                    case _:
+                    case Commands.sendFlash:
                         pass
-                    
-                val=self.user_command.value
-                self.user_command = None
-                await self.client.write_gatt_char(COMMAND_UUID, bytearray([val]))          
+                    case Commands.eraseFlash:
+                        pass
+
+                await client.write_gatt_char(COMMAND_UUID, bytearray([self.user_command.value]))         
+                self.user_command = None 
 
             if self.mode.value == 1:
                 if(self.ask2Update):
@@ -415,7 +430,7 @@ class BLE_link(Thread):
                         if(param.val_changeDetected()):
                             param.update_paramValue()
                             logger.info(f"Parameter {param.name} succesfully updated to {param.val}!")
-                            await self.client.write_gatt_char(param.uuid, param.val.to_bytes(2, byteorder='big')) 
+                            await client.write_gatt_char(param.uuid, param.val.to_bytes(2, byteorder='big')) 
             
         except Exception as exc:
             logger.warning("The device is not connected right now!")
@@ -427,13 +442,15 @@ class BLE_link(Thread):
             try:
                 con = get_controller()
             except:
-                print("No remote")
+                await asyncio.sleep(2)
+                logger.debug("No remote detected. Use keyboard!")
                 while True:  # Loop to capture keys continuously
-                    await asyncio.sleep(2)
+                    await asyncio.sleep(1/freq)
                     keyboard.add_hotkey('space', lambda: print('space was pressed'))
 
             else:
-                print("Taranis connected")
+                await asyncio.sleep(2)
+                logger.debug("Taranis detected!")
                 con.update()
                 if(int(round(con.joystick.get_axis(5))) == 0 and int(round(con.joystick.get_axis(4))) == 0):
                     while True:
@@ -444,8 +461,6 @@ class BLE_link(Thread):
                         RC_RPYT = [int(round((val+1) * 100)) for val in RC_RPYT]  # Normalize the values from -1~1 to 0~180
                         RC_mode = int(round(con.joystick.get_axis(5))) + 1
                         RC_sequence = int(round(con.joystick.get_axis(4))) + 1 
-
-
                 else:
                     print("Mode and sequence switches not on 0")
                     await asyncio.sleep(2)
@@ -465,18 +480,18 @@ class BLE_link(Thread):
     def disconnect(self):
         self.reset()
         self.connectedDevice = None
+
         self.ask2Disconnect = True
     
     
-    
-    async def print_client_info(self): 
+    async def print_client_info(self,client): 
         print("#--------------------- Client Info ---------------------#")
-        for service in self.client.services:
+        for service in client.services:
             print("[Service]: ", service)
             for char in service.characteristics:
                 if "read" in char.properties:
                     try:
-                        value = await self.client.read_gatt_char(char.uuid)
+                        value = await client.read_gatt_char(char.uuid)
                         print(" [Characteristic] UUID:", char," | Propreties: "
                             ",".join(char.properties),
                             " | Value:", value,
@@ -496,14 +511,10 @@ class BLE_link(Thread):
 
                 for descriptor in char.descriptors:
                     try:
-                        value = await self.client.read_gatt_descriptor(descriptor.handle)
+                        value = await client.read_gatt_descriptor(descriptor.handle)
                         print("    [Descriptor] UUID: ", descriptor," | Value:", value)
                     except Exception as e:
                         print("    [Descriptor] UUID: ", descriptor, e)
         
-def generate_param_uid(id):
-    #unused because there is a smarter way
-    return PARAM_SERVICE_UUID[:36-PARAM_DG_CNT]+str(id).zfill(PARAM_DG_CNT)
-
 
 

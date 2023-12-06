@@ -1,0 +1,7 @@
+############################To do list##################
+Readme for github (Mid)
+Keyboard hotkeys (High)
+Proper time management for flash storage (Very High)
+Fix preferences and help tab (Mid)
+Organize the code (Very High)
+

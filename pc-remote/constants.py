@@ -15,10 +15,10 @@ COMMAND_UUID= "0592b69b-087f-47ba-9112-e37c8ba29281"
 
 class Modes(Enum):
     RC_Mode = 0
-    Configuration = 1
+    Config = 1
     Sequence = 2
     
 class Commands(Enum):
-    Erase = 0b0000_0001
-    Sensor_Display = 0b0000_0010
-    
+    sendFlash = 0b0000_0001
+    sensorDisplay = 0b0000_0010
+    eraseFlash = 0b0000_0100

@@ -54,7 +54,6 @@ class ConsoleUi:
         self.scrolled_text.configure(state='normal')
         self.scrolled_text.insert(tk.END, msg + '\n', record.levelname)
         self.scrolled_text.configure(state='disabled')
-        # Autoscroll to the bottom
         self.scrolled_text.yview(tk.END)
 
     def poll_log_queue(self):

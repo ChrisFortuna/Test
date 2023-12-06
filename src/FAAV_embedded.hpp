@@ -20,6 +20,7 @@
 #define CONNECTED 1
 #define FLAPPING 2
 
+
 #define MISC_SERVICE "13012F00-F8C3-4F4A-A8F4-15CD926DA146"
 #define UUID_mode "13012F03-F8C3-4F4A-A8F4-15CD926DA147"
 #define UUID_RPYT "13012F03-F8C3-4F4A-A8F4-15CD926DA148"
@@ -42,20 +43,22 @@ void manual_flight_controller(struct rpyt_struct rpyt);
 void modeChangeHandler(int mode);
 void onBLEConnected(BLEDevice central);
 void onBLEDisconnected(BLEDevice central);
-void init_ble();
-void init_TaskScheduler();
-void init_GPIOs();
-void setup_miscService();
+void initBle();
+void initTaskScheduler();
+void initGPIOs();
+void setupMiscService();
 void flapping_active(bool active);
 void wing_sweep(int sweep);
 
+///////////////////////////////////////////////////////////////////////////////////////////
+// Task Callbacks:
 void t1Callback();
 void t1offCallback();
 void tFlappingONCallback();
 void tFlappingOFFCallback();
-void tPowerSamplerCallback();
 void tSensorsCallback();
+void tFlashSendCallback();
 
-void cBleCommandCallback(BLEDevice central, BLECharacteristic characteristic);
+void BleCommandCallback(BLEDevice central, BLECharacteristic characteristic);
 
 #endif

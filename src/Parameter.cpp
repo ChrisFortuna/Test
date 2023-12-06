@@ -118,7 +118,7 @@ void all_param_update(){
 	for(auto const& param_addr: dummy.get_param_tab_addr()){
 		if((param_addr->get_BLEcharacteristic()).written()){
 			param_addr->param_read();
-			param_addr->param_print();
+			if(DEBUG_ON) param_addr->param_print();
 		}
 	} 
 }

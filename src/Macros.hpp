@@ -27,4 +27,6 @@
 #define RPYT_UUID "655c8dfe-5940-11ee-8c99-0242ac120002"
 #define STATE_UUID "2c30071b-312c-4f60-bdf5-2119c0529cb4"
 
+#define DEBUG_ON 1 
+
 #endif
